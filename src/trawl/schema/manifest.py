@@ -1,42 +1,63 @@
 import re
-from collections.abc import Callable
 from pathlib import Path
 
-LAYERS = [
-    "types",
-    "functions",
-    "tables",
-    "constraints",
-    "indexes",
-    "views",
-    "triggers",
-]
+from pydantic import BaseModel, Field
 
-OBJECT_RE = {
-    "tables": re.compile(r'CREATE TABLE( IF NOT EXISTS)? "?([A-Za-z_][A-Za-z0-9_]*)"?'),
-    "views": re.compile(
-        r'CREATE (?:OR REPLACE )?VIEW "?([A-Za-z_][A-Za-z0-9_]*)"?', re.IGNORECASE
-    ),
-}
-REFERENCE_RE = {
-    "tables": re.compile(r'REFERENCES "?([A-Za-z_][A-Za-z0-9_]*)"?'),
-    "views": re.compile(r'(?:FROM|JOIN)\s+"?([A-Za-z_][A-Za-z0-9_]*)"?', re.IGNORECASE),
-}
+NAME = r'"?([A-Za-z_][A-Za-z0-9_]*)"?'
 
 
-def object_name(layer: str, path: Path) -> str | None:
-    match = OBJECT_RE[layer].search(path.read_text())
+class Layout(BaseModel):
+    """
+    How a schema directory is read. Every field is a plain value or a regex, so a
+    project can add layers (for example `policies`) or change what counts as an
+    object name or a reference without touching code.
+    """
+
+    layers: list[str] = Field(
+        default_factory=lambda: [
+            "types",
+            "functions",
+            "tables",
+            "constraints",
+            "indexes",
+            "views",
+            "triggers",
+        ]
+    )
+    objects: dict[str, str] = Field(
+        default_factory=lambda: {
+            "tables": rf"CREATE TABLE(?: IF NOT EXISTS)? {NAME}",
+            "views": rf"CREATE (?:OR REPLACE )?VIEW {NAME}",
+        }
+    )
+    references: dict[str, str] = Field(
+        default_factory=lambda: {
+            "tables": rf"REFERENCES {NAME}",
+            "views": rf"(?:FROM|JOIN)\s+{NAME}",
+        }
+    )
+    flags: int = re.IGNORECASE
+
+
+DEFAULT_LAYOUT = Layout()
+
+
+def object_name(layer: str, path: Path, layout: Layout = DEFAULT_LAYOUT) -> str | None:
+    match = re.search(layout.objects[layer], path.read_text(), layout.flags)
     return match.group(match.lastindex or 1) if match else None
 
 
-def order_by_dependency(layer: str, directory: Path) -> list[Path]:
+def order_by_dependency(
+    layer: str, directory: Path, layout: Layout = DEFAULT_LAYOUT
+) -> list[Path]:
     """
     Objects another object points at must load first, and file names alone do not
     guarantee that. Tables point at each other through REFERENCES, views through
-    FROM and JOIN.
+    FROM and JOIN, and the regexes in the layout say how for any other layer.
     """
     files = sorted(directory.glob("*.sql"))
-    by_name = {name: f for f in files if (name := object_name(layer, f))}
+    by_name = {name: f for f in files if (name := object_name(layer, f, layout))}
+    pattern = re.compile(layout.references[layer], layout.flags)
     ordered: list[Path] = []
     visited: set[str] = set()
 
@@ -45,7 +66,7 @@ def order_by_dependency(layer: str, directory: Path) -> list[Path]:
             return
         visited.add(name)
         path = by_name[name]
-        for dependency in REFERENCE_RE[layer].findall(path.read_text()):
+        for dependency in pattern.findall(path.read_text()):
             if dependency != name and dependency in by_name:
                 visit(dependency)
         ordered.append(path)
@@ -55,29 +76,28 @@ def order_by_dependency(layer: str, directory: Path) -> list[Path]:
     return ordered
 
 
-def layer_files(schema_dir: Path, layer: str) -> list[Path]:
+def layer_files(
+    schema_dir: Path, layer: str, layout: Layout = DEFAULT_LAYOUT
+) -> list[Path]:
     directory = schema_dir / layer
     if not directory.is_dir():
         return []
-    ordering: Callable[[], list[Path]] = (
-        (lambda: order_by_dependency(layer, directory))
-        if layer in OBJECT_RE
-        else (lambda: sorted(directory.glob("*.sql")))
-    )
-    return ordering()
+    if layer in layout.objects:
+        return order_by_dependency(layer, directory, layout)
+    return sorted(directory.glob("*.sql"))
 
 
-def manifest_text(schema_dir: Path) -> str:
+def manifest_text(schema_dir: Path, layout: Layout = DEFAULT_LAYOUT) -> str:
     lines = [
         f"\\i {layer}/{path.name}"
-        for layer in LAYERS
-        for path in layer_files(schema_dir, layer)
+        for layer in layout.layers
+        for path in layer_files(schema_dir, layer, layout)
     ]
     return "\n".join(lines) + "\n" if lines else ""
 
 
-def generate_manifest(schema_dir: Path) -> None:
-    (schema_dir / "manifest.sql").write_text(manifest_text(schema_dir))
+def generate_manifest(schema_dir: Path, layout: Layout = DEFAULT_LAYOUT) -> None:
+    (schema_dir / "manifest.sql").write_text(manifest_text(schema_dir, layout))
 
 
 def schema_sql(schema_dir: Path) -> str:

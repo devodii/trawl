@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from trawl.schema.manifest import manifest_text, order_by_dependency
+from trawl.schema.manifest import Layout, manifest_text, order_by_dependency
 
 
 def write(root: Path, files: dict[str, str]) -> Path:
@@ -51,3 +51,23 @@ def test_the_manifest_lists_layers_in_load_order(tmp_path):
     )
 
     assert manifest_text(tmp_path) == "\\i tables/a.sql\n\\i indexes/a_id.sql\n"
+
+
+def test_a_project_can_add_a_layer_and_say_how_its_objects_are_named(tmp_path):
+    write(
+        tmp_path,
+        {
+            "tables/a.sql": "CREATE TABLE a (id text PRIMARY KEY);",
+            "policies/p_two.sql": "CREATE POLICY p_two ON a USING (p_one IS NOT NULL);",
+            "policies/p_one.sql": "CREATE POLICY p_one ON a USING (true);",
+        },
+    )
+    layout = Layout(
+        layers=["tables", "policies"],
+        objects={"policies": r"CREATE POLICY (\w+)"},
+        references={"policies": r"\b(p_\w+)\b"},
+    )
+
+    assert manifest_text(tmp_path, layout) == (
+        "\\i tables/a.sql\n\\i policies/p_one.sql\n\\i policies/p_two.sql\n"
+    )
