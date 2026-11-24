@@ -1,0 +1,73 @@
+[project]
+name = "trawl"
+version = "0.1.0"
+description = "Shared toolkit for scrapers and indexers: GitHub client, schema tooling, checkpoints, git and Soroban readers"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+dependencies = [
+    "asyncpg>=0.32.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.11.0",
+    "pyyaml>=6.0.3",
+]
+
+[project.optional-dependencies]
+parse = [
+    "tree-sitter>=0.25.0",
+    "tree-sitter-rust>=0.24.0",
+    "tree-sitter-toml>=0.7.0",
+]
+stellar = [
+    "duckdb>=1.2.0",
+    "stellar-sdk>=17.0.1",
+]
+sql = [
+    "sqlfluff>=4.5.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.1",
+    "ruff>=0.17.3",
+    "sqlfluff>=4.5.0",
+    "tree-sitter>=0.25.0",
+    "tree-sitter-rust>=0.24.0",
+    "tree-sitter-toml>=0.7.0",
+    "duckdb>=1.2.0",
+    "stellar-sdk>=17.0.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+extend-select = ["TID", "D209", "D213"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.sqlfluff.core]
+dialect = "postgres"
+exclude_rules = "LT05,RF01,RF02,RF04,ST10,AL03"
+
+[tool.sqlfluff.rules.capitalisation.keywords]
+capitalisation_policy = "upper"
+
+[tool.sqlfluff.rules.capitalisation.literals]
+capitalisation_policy = "upper"
