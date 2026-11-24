@@ -26,6 +26,9 @@ sql = [
     "sqlfluff>=4.5.0",
 ]
 
+[project.entry-points."sqlfluff"]
+trawl = "trawl.schema.sqlfluff.plugin"
+
 [build-system]
 requires = ["uv_build>=0.12.5"]
 build-backend = "uv_build"
