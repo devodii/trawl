@@ -11,15 +11,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - run: uv sync --frozen
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run sqlfluff lint src/trawl/db/sql src/trawl/db/ddl
-      - run: uv run pytest
-      - run: uv build
+    uses: ./.github/workflows/python.yml
+    with:
+      sql-paths: src/trawl/db/sql src/trawl/db/ddl
+      build: true

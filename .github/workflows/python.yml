@@ -1,0 +1,77 @@
+name: python
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: "."
+      sql-paths:
+        description: space separated folders for sqlfluff, empty to skip
+        type: string
+        default: ""
+      schema-apply:
+        description: command that builds the schema on the empty database, empty to skip
+        type: string
+        default: ""
+      schema-verify:
+        description: command that fails when the database and the schema files differ
+        type: string
+        default: ""
+      test-command:
+        type: string
+        default: uv run pytest
+      build:
+        description: build the package to check it packs
+        type: boolean
+        default: false
+      db-name:
+        type: string
+        default: app
+      db-user:
+        type: string
+        default: app
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ${{ inputs.db-user }}
+          POSTGRES_PASSWORD: ${{ inputs.db-user }}
+          POSTGRES_DB: ${{ inputs.db-name }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.db-user }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://${{ inputs.db-user }}:${{ inputs.db-user }}@localhost:5432/${{ inputs.db-name }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - name: Lint the sql
+        if: inputs.sql-paths != ''
+        run: uv run sqlfluff lint ${{ inputs.sql-paths }}
+      - name: Build the schema on an empty database
+        if: inputs.schema-apply != ''
+        run: ${{ inputs.schema-apply }}
+      - name: The schema files and the database agree
+        if: inputs.schema-verify != ''
+        run: ${{ inputs.schema-verify }}
+      - run: ${{ inputs.test-command }}
+      - name: Build the package
+        if: inputs.build
+        run: uv build
