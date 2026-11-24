@@ -4,23 +4,32 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from trawl.schema.connection import Connection
-from trawl.schema.guard import destructive_statements
-from trawl.schema.manifest import generate_manifest, manifest_text
+from trawl.schema.guard import RULES, destructive_statements
+from trawl.schema.manifest import (
+    DEFAULT_LAYOUT,
+    Layout,
+    generate_manifest,
+    manifest_text,
+)
 
 DEFAULT_IMAGE = "pgplex/pgschema:1.14.1"
 MANIFEST = "/db/schema/manifest.sql"
 LOCK_TIMEOUT = "30s"
 
 
-class Target(BaseModel, frozen=True):
+class Target(BaseModel):
     """One database and the schema and migration files that describe it."""
+
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     name: str
     db_dir: Path
     image: str = DEFAULT_IMAGE
+    layout: Layout = DEFAULT_LAYOUT
+    rules: list[tuple[str, str]] = Field(default_factory=lambda: list(RULES))
 
     @property
     def schema_dir(self) -> Path:
@@ -134,7 +143,7 @@ def plan_sql(connection: Connection, out_dir: Path, target: Target) -> tuple[int
 def plan(connection: Connection, *, format: bool = True, target: Target) -> int:
     if format:
         format_schema(target)
-    generate_manifest(target.schema_dir)
+    generate_manifest(target.schema_dir, target.layout)
     path = next_migration_path(target)
     returncode = run_pgschema(
         "plan",
@@ -162,7 +171,7 @@ def apply(
     out_dir: Path | None = None,
     target: Target,
 ) -> int:
-    generate_manifest(target.schema_dir)
+    generate_manifest(target.schema_dir, target.layout)
     with TemporaryDirectory() as scratch:
         work_dir = out_dir or Path(scratch)
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +182,7 @@ def apply(
             print(f"No changes: {connection.label} already matches the schema files.")
             return 0
         print(f"Pending changes for {connection.label}:\n\n{sql}")
-        findings = destructive_statements(sql)
+        findings = destructive_statements(sql, target.rules)
         if findings and not allow_destructive:
             print("Refusing to apply: the plan could lose data.", file=sys.stderr)
             for finding in findings:
@@ -195,7 +204,7 @@ def apply(
 def verify(connection: Connection, target: Target) -> int:
     manifest = target.schema_dir / "manifest.sql"
     if not manifest.is_file() or manifest.read_text() != manifest_text(
-        target.schema_dir
+        target.schema_dir, target.layout
     ):
         print(
             "manifest.sql is out of date: run the schema plan command.",
