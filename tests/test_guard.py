@@ -31,3 +31,10 @@ def test_the_guard_lets_additive_and_data_safe_changes_through():
     """
 
     assert destructive_statements(sql) == []
+
+
+def test_a_project_can_bring_its_own_rules():
+    rules = [(r"\bGRANT\b", "changes who can read the data")]
+
+    assert destructive_statements("GRANT ALL ON repos TO bot;", rules)
+    assert destructive_statements("DROP TABLE repos;", rules) == []

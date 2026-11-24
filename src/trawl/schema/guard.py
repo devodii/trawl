@@ -28,15 +28,21 @@ def strip_comments(sql: str) -> str:
     return re.sub(r"--[^\n]*", "", sql)
 
 
-def destructive_statements(sql: str) -> list[Finding]:
+def destructive_statements(
+    sql: str,
+    rules: list[tuple[str, str]] = RULES,
+    flags: int = re.IGNORECASE,
+) -> list[Finding]:
     """
-    Every statement in a plan that could lose data. Dropping an index, view,
-    trigger, function or constraint loses none, so those pass.
+    Every statement in a plan that could lose data, judged by regex rules of
+    (pattern, reason). Pass your own rules to tighten or relax the guard.
+    Dropping an index, view, trigger, function or constraint loses none, so
+    those pass by default.
     """
     findings = []
     for statement in strip_comments(sql).split(";"):
-        for pattern, reason in RULES:
-            if re.search(pattern, statement, re.IGNORECASE):
+        for pattern, reason in rules:
+            if re.search(pattern, statement, flags):
                 findings.append(
                     Finding(reason=reason, statement=" ".join(statement.split())[:200])
                 )
